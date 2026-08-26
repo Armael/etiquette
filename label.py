@@ -9,6 +9,7 @@ from urllib.parse import parse_qs
 
 HOST = os.environ.get("ETIQUETTE_SERVER_HOST", "127.0.0.1")
 PORT = int(os.environ.get("ETIQUETTE_SERVER_PORT", "8000"))
+TYPST = os.environ.get("ETIQUETTE_TYPST_BIN", "typst")
 
 TYPST_TEMPLATE = r"""
 #import "@preview/sheetwise:0.1.0": impose, repeat
@@ -163,19 +164,6 @@ class LabelHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
 
-        # Make sure Typst is available before doing any work.
-        typst = shutil.which("typst")
-        if typst is None:
-            self.send_html(
-                """<!doctype html>
-                <html><body>
-                <h1>Error</h1>
-                <p>The <code>typst</code> executable was not found in PATH.</p>
-                </body></html>""",
-                status=500,
-            )
-            return
-
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
 
@@ -239,7 +227,7 @@ class LabelHandler(BaseHTTPRequestHandler):
                 return
 
             pdf_data = self.generate_pdf(
-                typst,
+                TYPST,
                 label,
                 largeur,
                 hauteur,

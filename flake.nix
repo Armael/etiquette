@@ -55,8 +55,10 @@
               after = [ "network.target" ];
 
               environment = {
+                PYTHONUNBUFFERED = "1";
                 ETIQUETTE_SERVER_HOST = cfg.host;
                 ETIQUETTE_SERVER_PORT = toString cfg.port;
+                ETIQUETTE_TYPST_BIN = "${pkgs.typst}/bin/typst";
               };
 
               serviceConfig = {
