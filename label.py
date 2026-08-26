@@ -7,36 +7,29 @@ import tempfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs
 
-from pypdf import PdfReader, PdfWriter
-
-
-HOST = os.environ.get("LABEL_SERVER_HOST", "127.0.0.1")
-PORT = int(os.environ.get("LABEL_SERVER_PORT", "8000"))
+HOST = os.environ.get("ETIQUETTE_SERVER_HOST", "127.0.0.1")
+PORT = int(os.environ.get("ETIQUETTE_SERVER_PORT", "8000"))
 
 TYPST_TEMPLATE = r"""
-#import "@preview/etykett:0.1.1"
+#import "@preview/sheetwise:0.1.0": impose, repeat
 
-#let label = read("label.txt")
+#let text = read("label.txt")
 
-#etykett.labels(
-  sheet: etykett.sheet(
-    paper: "a4",
-    margins: (
-      top: 14mm,
-      bottom: 15mm,
-      x: 6mm,
-    ),
-    gutters: (x: 1mm, y: 1mm),
-    rows: {{LIGNES}},
-    columns: {{COLONNES}},
-  ),
-  border: "labels",
+#let label = [
+    #set std.align(center+horizon)
+    #set std.text({{TAILLE_TXT}}pt) 
+    #text
+]
 
-  ..etykett.repeat(1000, [
-    #set align(center+horizon)
-    #set text({{TAILLE_TXT}}pt) 
-    #label
-  ])
+#impose(
+  repeat()[#label],
+  paper: "a4",
+  trim-size: ({{LARGEUR}}mm, {{HAUTEUR}}mm),
+  margin: (14mm, 15mm),
+  gap: 0mm,
+  cut-mode: "single",
+  bleed: 0mm,
+  safe: 0mm,
 )
 """
 
@@ -61,7 +54,8 @@ HTML_FORM = """<!doctype html>
         }
 
         input[type="text"],
-        input[type="number"] {
+        input[type="number"],
+        input[type="password"] {
             box-sizing: border-box;
             width: 100%;
             padding: 0.75rem;
@@ -98,25 +92,25 @@ HTML_FORM = """<!doctype html>
             maxlength="1000"
         >
 
-        <label for="lignes">Lignes</label>
+        <label for="largeur">Largeur (en mm)</label>
         <input
-            id="lignes"
-            name="lignes"
+            id="largeur"
+            name="largeur"
             type="number"
             min="1"
             step="1"
-            value="10"
+            value="55"
             required
         >
 
-        <label for="colonnes">Colonnes</label>
+        <label for="hauteur">Hauteur</label>
         <input
-            id="colonnes"
-            name="colonnes"
+            id="hauteur"
+            name="hauteur"
             type="number"
             min="1"
             step="1"
-            value="3"
+            value="15"
             required
         >
 
@@ -128,6 +122,15 @@ HTML_FORM = """<!doctype html>
             min="1"
             step="1"
             value="16"
+            required
+        >
+
+        <label for="password">Mot de passe</label>
+        <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
             required
         >
 
@@ -189,41 +192,46 @@ class LabelHandler(BaseHTTPRequestHandler):
             )
 
             label_values = form.get("label", [])
-            lignes_values = form.get("lignes", [])
-            colonnes_values = form.get("colonnes", [])
+            largeur_values = form.get("largeur", [])
+            hauteur_values = form.get("hauteur", [])
             taille_txt = form.get("taille_txt", [])
+            password = form.get("password", [])
 
             if not label_values:
                 self.send_error(400, "Texte manquant")
                 return
 
-            if not lignes_values:
-                self.send_error(400, "Missing Lignes")
+            if not largeur_values:
+                self.send_error(400, "Missing Largeur")
                 return
 
-            if not colonnes_values:
-                self.send_error(400, "Missing Colonnes")
+            if not hauteur_values:
+                self.send_error(400, "Missing Hauteur")
                 return
 
             if not taille_txt:
                 self.send_error(400, "Missing Taille du texte")
                 return
 
+            if password[0] != "confiture":
+                self.send_error(403, "Mauvais mot de passe")
+                return
+
             label = label_values[0]
-            lignes = int(lignes_values[0])
-            colonnes = int(colonnes_values[0])
+            largeur = int(largeur_values[0])
+            hauteur = int(hauteur_values[0])
             taille_txt = int(taille_txt[0])
 
             if len(label) > 1000:
                 self.send_error(400, "Label is too long")
                 return
 
-            if lignes < 1:
-                self.send_error(400, "Lignes must be a positive integer")
+            if largeur < 1:
+                self.send_error(400, "Largeur must be a positive integer")
                 return
 
-            if colonnes < 1:
-                self.send_error(400, "Colonnes must be a positive integer")
+            if hauteur < 1:
+                self.send_error(400, "Hauteur must be a positive integer")
                 return
 
             if taille_txt < 1:
@@ -233,8 +241,8 @@ class LabelHandler(BaseHTTPRequestHandler):
             pdf_data = self.generate_pdf(
                 typst,
                 label,
-                lignes,
-                colonnes,
+                largeur,
+                hauteur,
                 taille_txt,
             )
 
@@ -268,7 +276,7 @@ class LabelHandler(BaseHTTPRequestHandler):
             )
 
     @staticmethod
-    def generate_pdf(typst, label, lignes, colonnes, taille_txt):
+    def generate_pdf(typst, label, largeur, hauteur, taille_txt):
         # TemporaryDirectory is automatically cleaned up afterward.
         with tempfile.TemporaryDirectory(prefix="label-sheet-") as tmp:
             template_path = os.path.join(tmp, "label.typ")
@@ -277,11 +285,11 @@ class LabelHandler(BaseHTTPRequestHandler):
 
             # Insert the integer values into the Typst template.
             template = TYPST_TEMPLATE.replace(
-                "{{LIGNES}}",
-                str(lignes),
+                "{{LARGEUR}}",
+                str(largeur),
             ).replace(
-                "{{COLONNES}}",
-                str(colonnes),
+                "{{HAUTEUR}}",
+                str(hauteur),
             ).replace(
                 "{{TAILLE_TXT}}",
                 str(taille_txt),
@@ -322,21 +330,7 @@ class LabelHandler(BaseHTTPRequestHandler):
             if not os.path.isfile(pdf_path):
                 raise RuntimeError("Typst did not produce a PDF")
 
-            # Keep only the first page of the generated PDF.
-            reader = PdfReader(pdf_path)
-
-            if len(reader.pages) == 0:
-                raise RuntimeError("Generated PDF contains no pages")
-
-            writer = PdfWriter()
-            writer.add_page(reader.pages[0])
-
-            output_path = os.path.join(tmp, "label-sheet-first-page.pdf")
-
-            with open(output_path, "wb") as f:
-                writer.write(f)
-
-            with open(output_path, "rb") as f:
+            with open(pdf_path, "rb") as f:
                 return f.read()
 
     def log_message(self, format, *args):
@@ -347,7 +341,7 @@ class LabelHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    print(f"Starting label sheet server on http://{HOST}:{PORT}/")
+    print(f"Starting etiquette server on http://{HOST}:{PORT}/")
     print("Press Ctrl+C to stop.")
 
     server = HTTPServer((HOST, PORT), LabelHandler)
