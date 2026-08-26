@@ -59,6 +59,8 @@
                 ETIQUETTE_SERVER_HOST = cfg.host;
                 ETIQUETTE_SERVER_PORT = toString cfg.port;
                 ETIQUETTE_TYPST_BIN = "${pkgs.typst}/bin/typst";
+
+                XDG_CACHE_HOME = "/var/cache/etiquette-server";
               };
 
               serviceConfig = {
@@ -76,6 +78,8 @@
                 ProtectSystem = "strict";
                 ProtectHome = true;
                 PrivateDevices = true;
+
+                CacheDirectory = "etiquette-server";
               };
 
               path = [ pkgs.typst ];
